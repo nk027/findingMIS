@@ -78,12 +78,10 @@ format_set <- function(s, max_show = 5L) {
   if (length(s) == 0L) {
     return("{}")
   }
-
   max_show <- as.integer(max_show)
   if (length(s) <= max_show) {
     return(paste0("{", paste(s, collapse = ", "), "}"))
   }
-
   return(paste0("{", paste(s[seq_len(max_show)], collapse = ", "), ", ...}"))
 }
 

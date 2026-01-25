@@ -106,19 +106,6 @@ datasets <- list(
     context = "Saltmarsh parrow measurements; body dimensions predict tarsus length",
     reference = "Gjerdrum et al., 2008; Zuur et al., 2010"
   ),
-  ruggedness = list(
-    data = {\() {
-      d <- read.csv("../data/rugged_data.csv")
-      d$diamonds <- d$gemstones / (d$land_area / 100)
-      d
-    }}(),
-    formula = log(rgdppc_2000) ~ rugged * cont_africa + dist_coast * cont_africa,
-    features = c("rugged:cont_africa"),
-    name = "Ruggedness",
-    description = "Differential effects of rugged terrain in Africa",
-    context = "Africa has no negative correlation between GDP and ruggedness due to few outliers",
-    reference = "Nunn and Puga, 2012; Kuschnig et al., 2023"
-  ),
   trust = list(
     data = {\() {
       d <- as.data.frame(haven::read_dta("../data/trust_data.dta"))
@@ -397,6 +384,68 @@ datasets <- datasets |> append(
 # Null-coalescing operator
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+summarize_result <- function(res) {
+  values_p <- vapply(res[["miss_pos"]], \(l) l[["best_value"]], numeric(1L))
+  values_n <- vapply(res[["miss_neg"]], \(l) l[["best_value"]], numeric(1L))
+
+  k_n <- which.min(values_p)
+  k_p <- which.max(values_n)
+
+  coef_n <- values_p[[k_n]]
+  coef_p <- values_n[[k_p]]
+  delta_n <- coef_n - res$coef
+  delta_p <- coef_p - res$coef
+
+  sets_n <- lapply(res[["miss_pos"]], \(x) x[["best_S"]])
+  sets_p <- lapply(res[["miss_neg"]], \(x) x[["best_S"]])
+  breaks_n <- find_breaks(sets_n)
+  breaks_p <- find_breaks(sets_p)
+  jacc_n <- jaccard_consecutive(sets_n)
+  jacc_p <- jaccard_consecutive(sets_p)
+
+  overlap_p <- vapply(
+    seq_len(res$K),
+    \(k) {
+      greedy_set <- res[["greedy_pos"]][["best_S"]][seq_len(k)]
+      miss_set <- res[["miss_pos"]][[k]][["best_S"]]
+      jaccard_index(greedy_set, miss_set)
+    },
+    numeric(1L)
+  )
+  overlap_n <- vapply(
+    seq_len(res$K),
+    \(k) {
+      greedy_set <- res[["greedy_neg"]][["best_S"]][seq_len(k)]
+      miss_set <- res[["miss_neg"]][[k]][["best_S"]]
+      jaccard_index(greedy_set, miss_set)
+    },
+    numeric(1L)
+  )
+
+  iter_n <- vapply(res[["miss_pos"]], \(x) x[["iter"]], integer(1L))
+  iter_p <- vapply(res[["miss_neg"]], \(x) x[["iter"]], integer(1L))
+
+  mk_row <- function(dir, breaks, jacc, overlap, iter) {
+    data.frame(
+      Variable = res[["var_name"]],
+      # Coef = res$coef,
+      K = res[["K"]],
+      Direction = dir,
+      Breaks = length(breaks),
+      `Mean Nesting` = if (length(jacc)) mean(jacc) else NA_real_,
+      `Min Nesting`  = if (length(jacc)) min(jacc)  else NA_real_,
+      `Mean Overlap` = if (length(overlap)) mean(overlap) else NA_real_,
+      `Min Overlap`= if (length(overlap)) min(overlap)  else NA_real_,
+      `Med Iters` = median(iter),
+      `Max Iters` = max(iter)
+    )
+  }
+  rbind(
+    mk_row("Negative", breaks_n, jacc_n, overlap_n, iter_n),
+    mk_row("Positive", breaks_p, jacc_p, overlap_p, iter_p)
+  )
+}
+
 compute_results <- function(
   dataset, K_max = K_MAX, residualize = update_fwl, greedy = TRUE, start_warm = TRUE
 ) {
@@ -427,6 +476,22 @@ render_results <- function(dataset, results) {
   cat("**Sample size:** n = ", nrow(dataset$data), "\n\n", sep = "")
   # cat("**Variables analyzed:** ", paste(dataset$features, collapse = ", "), "\n\n", sep = "")
   cat("---\n\n")
+
+  cat("\n### Summary\n\n", sep = "")
+  sm_list <- lapply(dataset$features, \(var) {
+    res <- results[[var]]
+    if (is.null(res)) { return(NULL) }
+    summarize_result(res)
+  })
+  sm <- Filter(Negate(is.null), sm_list)
+  if (length(sm)) {
+    tab <- do.call(rbind, sm) |> knitr::kable(
+      format = "html", digits = 3, row.names = FALSE, caption = "Summary"
+    )
+    cat(tab, "\n\n")
+  } else {
+    cat("No results available for this dataset.\n\n")
+  }
 
   # Return results for each variable
   for (var in dataset$features) {

@@ -235,7 +235,7 @@ jacc_n <- vapply(
   plot.new()
   plot.window(ylim = c(0, 1), xlim = c(0L, n_max))
   axis(1L, at = c(0, 200, 400, n_max))
-  axis(2L)
+  axis(2L, at = c(0, .5, 1))
   abline(v = c(200, 400), lty = 3, col = "lightgray")
   abline(h = .5, lty = 3, col = "lightgray")
   abline(h = 0, col = "darkgray")
