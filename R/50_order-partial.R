@@ -1,4 +1,9 @@
-Rcpp::sourceCpp(code = '
+# Partial ordering: get top-k indices efficiently
+
+# Use Rcpp if available, otherwise falls back to base R
+if (requireNamespace("Rcpp", quietly = TRUE)) {
+  Rcpp::sourceCpp(
+    code = '
 #include <Rcpp.h>
 #include <vector>
 #include <queue>
@@ -95,8 +100,14 @@ IntegerVector order_partial_cpp(SEXP xSEXP, int k, bool decreasing) {
     return topk_heap(xp, n, k, BetterInc{});
   }
 }
-')
-
-order_partial <- function(x, k, decreasing = FALSE) {
-  order_partial_cpp(x, as.integer(k), isTRUE(decreasing))
+'
+  )
+  order_partial <- function(x, k, decreasing = FALSE) {
+    order_partial_cpp(x, as.integer(k), isTRUE(decreasing))
+  }
+} else {
+  message("Rcpp not available; using plain R for (partial) order.")
+  order_partial <- function(x, k, decreasing = FALSE) {
+    order(x, decreasing = decreasing)[seq_len(min(k, length(x)))]
+  }
 }

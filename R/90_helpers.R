@@ -1,22 +1,10 @@
-# Update values so only (orthogonalized) 'variables' in X are kept
-update_fwl <- function(X, y, variables, rm = NULL) {
-  if (!any(variables == 0)) {
-    if (is.null(rm)) {
-      Q_fwl <- qr.Q(qr(X[, -variables, drop = FALSE]))
-      y <- y - Q_fwl %*% crossprod(Q_fwl, y)
-      X <- X[, variables, drop = FALSE] -
-        Q_fwl %*%
-          crossprod(Q_fwl, X[, variables, drop = FALSE])
-    } else {
-      Q_fwl <- qr.Q(qr(X[-rm, -variables, drop = FALSE]))
-      y[-rm] <- y[-rm] - Q_fwl %*% crossprod(Q_fwl, y[-rm])
-      X[-rm, variables] <- X[-rm, variables, drop = FALSE] -
-        Q_fwl %*%
-          crossprod(Q_fwl, X[-rm, variables, drop = FALSE])
-      X <- X[, variables]
-    }
+# Check whether a package is available
+has_package <- \(name, verbose = TRUE, purpose = "") {
+  has_pkg <- requireNamespace(name, quietly = TRUE)
+  if (!has_pkg && isTRUE(verbose)) {
+    message("Package", name, "not available.", purpose)
   }
-  return(list("y" = y, "X" = X))
+  has_pkg
 }
 
 # Extract (univariate) regressor and residuals from an lm
