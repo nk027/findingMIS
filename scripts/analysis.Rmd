@@ -30,18 +30,13 @@ for (f in list.files("../R", "\\.R$", full.names = TRUE)) {
   source(f, local = FALSE)
 }
 
-has_package <- \(name, purpose = "") {
-  has_pkg <- requireNamespace(name, quietly = TRUE)
-  if (!has_pkg) message("Package", name, "not available.", purpose)
-}
-
 has_haven <- has_package("haven", "Skipping DTA files.")
 has_influence <- has_package("influence", "Skipping freedy algorithm.")
 has_mass <- has_package("MASS", "Skipping Boston housing data.")
 has_robustbase <- has_package("robustbase", "Skipping stats benchmark datasets.")
 
 # Analysis parameters
-K_MAX <- 5000L
+K_MAX <- 1000L
 ```
 
 # Introduction
@@ -403,24 +398,28 @@ summarize_result <- function(res) {
   jacc_n <- jaccard_consecutive(sets_n)
   jacc_p <- jaccard_consecutive(sets_p)
 
-  overlap_p <- vapply(
-    seq_len(res$K),
-    \(k) {
-      greedy_set <- res[["greedy_pos"]][["best_S"]][seq_len(k)]
-      miss_set <- res[["miss_pos"]][[k]][["best_S"]]
-      jaccard_index(greedy_set, miss_set)
-    },
-    numeric(1L)
-  )
-  overlap_n <- vapply(
-    seq_len(res$K),
-    \(k) {
-      greedy_set <- res[["greedy_neg"]][["best_S"]][seq_len(k)]
-      miss_set <- res[["miss_neg"]][[k]][["best_S"]]
-      jaccard_index(greedy_set, miss_set)
-    },
-    numeric(1L)
-  )
+  overlap_p <- numeric(0L)
+  overlap_n <- numeric(0L)
+  if (!is.null(res[["greedy_pos"]]) && !is.null(res[["greedy_neg"]])) {
+    overlap_p <- vapply(
+      seq_len(res$K),
+      \(k) {
+        greedy_set <- res[["greedy_pos"]][["best_S"]][seq_len(k)]
+        miss_set <- res[["miss_pos"]][[k]][["best_S"]]
+        jaccard_index(greedy_set, miss_set)
+},
+      numeric(1L)
+    )
+    overlap_n <- vapply(
+      seq_len(res$K),
+      \(k) {
+        greedy_set <- res[["greedy_neg"]][["best_S"]][seq_len(k)]
+        miss_set <- res[["miss_neg"]][[k]][["best_S"]]
+        jaccard_index(greedy_set, miss_set)
+      },
+      numeric(1L)
+    )
+  }
 
   iter_n <- vapply(res[["miss_pos"]], \(x) x[["iter"]], integer(1L))
   iter_p <- vapply(res[["miss_neg"]], \(x) x[["iter"]], integer(1L))
@@ -447,9 +446,11 @@ summarize_result <- function(res) {
 }
 
 compute_results <- function(
-  dataset, K_max = K_MAX, residualize = update_fwl, greedy = TRUE, start_warm = TRUE
+  dataset, K_max = K_MAX, greedy = TRUE, start_warm = TRUE
 ) {
   results <- list()
+  errors <- list()
+  residualize <- ifelse(NROW(dataset$data) > 100L && NCOL(dataset$data) > 2L, update_plm, update_fwl)
   for (var in dataset$features) {
     res <- tryCatch({
       analyze_variable(
@@ -459,10 +460,19 @@ compute_results <- function(
         greedy = isTRUE(greedy), start_warm = isTRUE(start_warm)
       )
     }, error = function(e) {
-      message("Error analyzing ", dataset$name, " / ", var, ": ", e$message)
+      errors[[length(errors) + 1L]] <- data.frame(
+        Dataset = dataset$name,
+        Variable = var,
+        Error = conditionMessage(e),
+        check.names = FALSE
+      )
       NULL
     })
     results[[var]] <- res
+  }
+
+  if (length(errors)) {
+    attr(results, "errors") <- do.call(rbind, errors)
   }
   results
 }
@@ -477,7 +487,6 @@ render_results <- function(dataset, results) {
   # cat("**Variables analyzed:** ", paste(dataset$features, collapse = ", "), "\n\n", sep = "")
   cat("---\n\n")
 
-  cat("\n### Summary\n\n", sep = "")
   sm_list <- lapply(dataset$features, \(var) {
     res <- results[[var]]
     if (is.null(res)) { return(NULL) }
@@ -528,7 +537,7 @@ render_results <- function(dataset, results) {
     plot_trace(res); cat("\n")
 
     cat("\n#### MISS vs. Greedy (Value, Set)\n\n", sep = "")
-    has_greedy <- !is.null(res[["greedy_pos"]]) || !is.null(res[["greedy_neg"]])
+    has_greedy <- !is.null(res[["greedy_pos"]]) && !is.null(res[["greedy_neg"]])
     if(has_greedy) {
       op <- par(mfrow = c(2, 1), mar = c(4, 4, 2, 1))
       plot_error(res); cat("\n")
@@ -568,9 +577,8 @@ dataset_sm <- do.call(rbind, lapply(datasets, \(d) {
 knitr::kable(dataset_sm, caption = "Dataset Overview", row.names = FALSE)
 ```
 
-# Analysis
 
-```{r execute, echo=FALSE, cache=TRUE, cache.lazy=FALSE}
+```{r execute, echo=FALSE, cache=TRUE, cache.lazy=FALSE, message=FALSE, warning=FALSE}
 # name <- "housing_california"
 # start <- Sys.time()
 # # res <- datasets[[name]] |> compute_results(greedy = FALSE)
@@ -579,17 +587,21 @@ knitr::kable(dataset_sm, caption = "Dataset Overview", row.names = FALSE)
 # datasets[[name]] |> render_results(res)
 
 # Precompute all results
+dir.create("../outputs/analysis", showWarnings = FALSE, recursive = TRUE)
+
 results <- list()
 for(name in names(datasets)) {
-  # Manual cache
-  if(file.exists(paste0("../outputs/analysis/", name, "-", K_MAX, "-greedy.rds"))) {
-    results[[name]] <- readRDS(paste0("../outputs/analysis/", name, "-", K_MAX, "-greedy.rds"))
+  out_file <- file.path("../outputs/analysis", paste0(name, "-", K_MAX, "-greedy.rds"))
+  if (file.exists(out_file)) {
+    results[[name]] <- readRDS(out_file)
   } else {
     results[[name]] <- compute_results(datasets[[name]], greedy = TRUE)
-    saveRDS(results[[name]], paste0("../outputs/analysis/", name, "-", K_MAX, "-greedy.rds"))
+    saveRDS(results[[name]], out_file)
   }
 }
 ```
+
+# Analysis
 
 ```{r analysis, echo=FALSE, cache=FALSE, results='asis'}
 # Render summaries and plots

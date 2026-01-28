@@ -6,7 +6,7 @@ get_miss_solver <- function(X, R, sign = 1L, tol = 1e-16, max_iter = 1e3) {
   num <- X * R * sign
   den <- X^2
   tot <- sum(den)
-  lambda_init <- max(num / tot)
+  lambda_init <- max(num / (tot - den))
 
   return(function(k, lambda = lambda_init) {
     S <- integer(0L)
@@ -33,7 +33,13 @@ get_miss_solver <- function(X, R, sign = 1L, tol = 1e-16, max_iter = 1e3) {
       lambda <- lambda_i
       S <- S_i
     }
-    stop("Did not converge; increase `max_iter` or check data")
+    warning("Did not converge; increase `max_iter` or check data")
+    return(list(
+      k = k,
+      best_S = S_i,
+      best_value = lambda_i,
+      iter = iter
+    ))
   })
 }
 

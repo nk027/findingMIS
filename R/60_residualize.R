@@ -27,6 +27,7 @@ update_plm <- function(
   method = c("gbm", "randomForest", "xgboost"),
   params = list()
 ) {
+  message("Interface for PLM residualization is not yet fully implemented.")
   # Input validation
   method <- match.arg(method)
   stopifnot(has_package(method))
@@ -62,7 +63,7 @@ update_plm <- function(
   )
   parameters <- modifyList(defaults[[method]], params)
 
-  # Nonparametric fitting function
+  # Flexible fitting function
   fit_np <- function(response, Z_mat) {
     Z_df <- as.data.frame(Z_mat)
     d_mt <- cbind(y = response, Z_df)
